@@ -1,0 +1,2345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>SMART_SEAT 코레일/SRT 스마트 좌석 예매</title>
+    <!-- jsQR: BarcodeDetector 미지원 환경(HTTP, 일부 브라우저)에서 QR 스캔 보정 -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- Supabase 클라우드 실시간 SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --bg-body: #060913;
+            --bg-card: #0f172a;
+            --bg-card-sub: #1e293b;
+            --bg-card-hover: #27354f;
+            --primary: #2563eb;
+            --primary-glow: rgba(37, 99, 235, 0.4);
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-green-glow: rgba(16, 185, 129, 0.35);
+            --accent-yellow: #f59e0b;
+            --accent-red: #ef4444;
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --text-muted: #64748b;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-active: rgba(6, 182, 212, 0.5);
+            --radius-lg: 20px;
+            --radius-md: 14px;
+            --radius-sm: 8px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: radial-gradient(circle at 50% 0%, #172554 0%, #060913 70%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: env(safe-area-inset-top, 8px) 8px env(safe-area-inset-bottom, 16px);
+        }
+
+        /* 스마트폰 앱 컨테이너 */
+        .app-wrapper {
+            width: 100%;
+            max-width: 450px;
+            background: rgba(15, 23, 42, 0.92);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 28px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 94vh;
+            position: relative;
+        }
+
+        /* 상단 상태 바 & 헤더 */
+        .app-header {
+            background: linear-gradient(180deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.7) 100%);
+            padding: 16px 18px 12px;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            backdrop-filter: blur(12px);
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .brand-title {
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: -0.3px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(135deg, #60a5fa, #38bdf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .server-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 9px;
+            border-radius: 20px;
+        }
+
+        .server-status-pill.offline {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: rgba(245, 158, 11, 0.3);
+            color: #fbbf24;
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            background: currentColor;
+            border-radius: 50%;
+            box-shadow: 0 0 6px currentColor;
+            animation: pulseDot 2s infinite;
+        }
+
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.85); }
+        }
+
+        /* 5단계 진행 상태 표시줄 */
+        .step-progress-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+            padding: 4px 6px;
+        }
+
+        .step-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            z-index: 2;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .step-circle {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--bg-card-sub);
+            border: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-muted);
+            transition: all 0.25s ease;
+        }
+
+        .step-label {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-muted);
+            transition: all 0.25s ease;
+        }
+
+        .step-item.active .step-circle {
+            background: var(--primary);
+            border-color: var(--accent-cyan);
+            color: #fff;
+            box-shadow: 0 0 12px var(--primary-glow);
+            transform: scale(1.1);
+        }
+
+        .step-item.active .step-label {
+            color: var(--accent-cyan);
+            font-weight: 700;
+        }
+
+        .step-item.completed .step-circle {
+            background: var(--accent-green);
+            border-color: var(--accent-green);
+            color: #fff;
+        }
+
+        .step-item.completed .step-label {
+            color: var(--accent-green);
+        }
+
+        /* 콘텐츠 영역 및 화면 전환 */
+        .screen-container {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .screen {
+            display: none;
+            flex-direction: column;
+            animation: fadeIn 0.28s ease forwards;
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 공통 헤딩 & 섹션 타이틀 */
+        .section-header {
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 800;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-desc {
+            font-size: 12px;
+            color: var(--text-sub);
+            margin-top: 3px;
+        }
+
+        /* -------------------------------------------------------------
+           STEP 1: 열차 선택 화면
+        ------------------------------------------------------------- */
+        .route-bar {
+            background: linear-gradient(135deg, #1e3a8a, #172554);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: var(--radius-lg);
+            padding: 16px 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 10px 25px -5px rgba(30, 58, 138, 0.4);
+        }
+
+        .route-stations {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .station-box {
+            text-align: center;
+        }
+
+        .station-type {
+            font-size: 11px;
+            color: #93c5fd;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .station-name {
+            font-size: 22px;
+            font-weight: 900;
+            color: #fff;
+            margin-top: 2px;
+        }
+
+        .route-swap-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .route-swap-btn:active {
+            transform: rotate(180deg) scale(0.95);
+        }
+
+        .route-date-strip {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #bfdbfe;
+        }
+
+        .train-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .train-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .train-card:hover, .train-card:active {
+            border-color: var(--accent-cyan);
+            background: var(--bg-card-sub);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px -4px rgba(6, 182, 212, 0.25);
+        }
+
+        .train-badge-smart {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: linear-gradient(135deg, #0284c7, #06b6d4);
+            color: #fff;
+            font-size: 10px;
+            font-weight: 800;
+            padding: 4px 10px 4px 8px;
+            border-bottom-left-radius: 12px;
+            letter-spacing: 0.3px;
+        }
+
+        .train-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .train-name-badge {
+            background: #1e3a8a;
+            color: #bfdbfe;
+            font-size: 12px;
+            font-weight: 800;
+            padding: 3px 8px;
+            border-radius: 6px;
+        }
+
+        .train-time-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 8px 0;
+        }
+
+        .time-group {
+            text-align: left;
+        }
+
+        .time-group.dest {
+            text-align: right;
+        }
+
+        .time-val {
+            font-size: 21px;
+            font-weight: 900;
+            color: #fff;
+        }
+
+        .station-val {
+            font-size: 12px;
+            color: var(--text-sub);
+        }
+
+        .duration-arrow {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .duration-line {
+            width: 70px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+            margin: 3px 0;
+            position: relative;
+        }
+
+        .train-card-footer {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+        }
+
+        .price-strike {
+            text-decoration: line-through;
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-right: 4px;
+        }
+
+        .price-badge-free {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            font-weight: 800;
+            padding: 2px 7px;
+            border-radius: 6px;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        /* -------------------------------------------------------------
+           STEP 2: 시간 설정 화면
+        ------------------------------------------------------------- */
+        .train-summary-banner {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .time-filter-pills {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 14px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+
+        .filter-pill {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-sub);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-pill.active {
+            background: var(--primary);
+            color: #fff;
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
+
+        .schedule-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+
+        .schedule-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s;
+        }
+
+        .schedule-item:hover, .schedule-item.selected {
+            background: rgba(37, 99, 235, 0.15);
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 14px rgba(6, 182, 212, 0.3);
+        }
+
+        .schedule-radio {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            transition: all 0.2s;
+        }
+
+        .schedule-item.selected .schedule-radio {
+            border-color: var(--accent-cyan);
+            background: var(--accent-cyan);
+        }
+
+        .schedule-item.selected .schedule-radio::after {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #000;
+            border-radius: 50%;
+        }
+
+        .sched-time-title {
+            font-size: 17px;
+            font-weight: 800;
+            color: #fff;
+        }
+
+        .sched-sub {
+            font-size: 11px;
+            color: var(--text-sub);
+            margin-top: 2px;
+        }
+
+        /* -------------------------------------------------------------
+           STEP 3: 좌석 선택 화면 (열차 실시간 배치도)
+        ------------------------------------------------------------- */
+        .coach-selector {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .coach-tab {
+            flex: 1;
+            padding: 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--text-sub);
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .coach-tab.active {
+            background: #1e3a8a;
+            color: #fff;
+            border-color: var(--accent-cyan);
+        }
+
+        .seat-legend {
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: var(--radius-sm);
+            margin-bottom: 14px;
+            font-size: 11px;
+            color: var(--text-sub);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-box {
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+        }
+
+        .train-carriage-box {
+            background: #090e1a;
+            border: 2px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 16px 12px;
+            position: relative;
+        }
+
+        .train-direction-banner {
+            text-align: center;
+            font-size: 11px;
+            color: #38bdf8;
+            font-weight: 700;
+            letter-spacing: 1px;
+            margin-bottom: 14px;
+            padding-bottom: 8px;
+            border-bottom: 1px dashed rgba(56, 189, 248, 0.25);
+        }
+
+        .train-rows-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .train-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .row-num {
+            font-size: 11px;
+            font-weight: 800;
+            color: var(--text-muted);
+            width: 20px;
+            text-align: center;
+        }
+
+        .seat-side-pair {
+            display: flex;
+            gap: 10px;
+        }
+
+        .aisle-gap {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 0 4px;
+        }
+
+        .seat-btn {
+            width: 72px;
+            height: 72px;
+            background: #1e293b;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .seat-btn:hover {
+            border-color: #60a5fa;
+            transform: scale(1.04);
+        }
+
+        .seat-btn.selected {
+            background: linear-gradient(135deg, #1d4ed8, #2563eb);
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 16px var(--primary-glow);
+            transform: scale(1.06);
+        }
+
+        .seat-btn.occupied {
+            background: #181c26;
+            border-color: rgba(239, 68, 68, 0.25);
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .seat-btn.unlocked {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: var(--accent-yellow);
+        }
+
+        .seat-btn-code {
+            font-size: 15px;
+            font-weight: 900;
+            color: #fff;
+        }
+
+        .seat-btn-state {
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .seat-smart-badge {
+            position: absolute;
+            top: 2px;
+            right: 4px;
+            font-size: 8px;
+            color: #38bdf8;
+            font-weight: 800;
+        }
+
+        .selected-seat-bar {
+            margin-top: 14px;
+            background: rgba(30, 58, 138, 0.3);
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            border-radius: var(--radius-md);
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* -------------------------------------------------------------
+           STEP 4: 구매창 (과제용 0원 설정)
+        ------------------------------------------------------------- */
+        .ticket-receipt-card {
+            background: linear-gradient(145deg, #111b33 0%, #0c1222 100%);
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            border-radius: 22px;
+            padding: 20px;
+            box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.6);
+            margin-bottom: 16px;
+            position: relative;
+        }
+
+        .ticket-receipt-card::before, .ticket-receipt-card::after {
+            content: '';
+            position: absolute;
+            top: 60%;
+            width: 20px;
+            height: 20px;
+            background: #060913;
+            border-radius: 50%;
+        }
+
+        .ticket-receipt-card::before { left: -10px; }
+        .ticket-receipt-card::after { right: -10px; }
+
+        .receipt-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .assignment-badge {
+            background: rgba(245, 158, 11, 0.2);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            color: #fbbf24;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+
+        .receipt-train-title {
+            font-size: 20px;
+            font-weight: 900;
+            color: #fff;
+            margin-bottom: 14px;
+        }
+
+        .receipt-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            background: rgba(0, 0, 0, 0.25);
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            margin-bottom: 16px;
+        }
+
+        .receipt-field .label {
+            font-size: 11px;
+            color: var(--text-sub);
+        }
+
+        .receipt-field .val {
+            font-size: 15px;
+            font-weight: 800;
+            color: #fff;
+            margin-top: 2px;
+        }
+
+        .fare-calculation {
+            border-top: 1px dashed rgba(255, 255, 255, 0.15);
+            padding-top: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .fare-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: var(--text-sub);
+        }
+
+        .fare-row.discount {
+            color: #34d399;
+            font-weight: 700;
+        }
+
+        .fare-row.total {
+            margin-top: 8px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 16px;
+            font-weight: 900;
+            color: #fff;
+            align-items: baseline;
+        }
+
+        .fare-total-amount {
+            font-size: 28px;
+            font-weight: 900;
+            color: #38bdf8;
+            letter-spacing: -0.5px;
+        }
+
+        .payment-method-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            margin-bottom: 16px;
+        }
+
+        .payment-option-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(37, 99, 235, 0.1);
+            border: 1px solid var(--accent-cyan);
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .assignment-notice {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            font-size: 12px;
+            color: var(--text-sub);
+            line-height: 1.5;
+            margin-bottom: 18px;
+        }
+
+        /* -------------------------------------------------------------
+           STEP 5: QR 전용 스캐너 화면
+        ------------------------------------------------------------- */
+        .scanner-header-banner {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            margin-bottom: 14px;
+            text-align: center;
+        }
+
+        .target-ticket-badge {
+            display: inline-block;
+            background: #1e3a8a;
+            color: #93c5fd;
+            font-size: 12px;
+            font-weight: 800;
+            padding: 4px 12px;
+            border-radius: 14px;
+            margin-bottom: 6px;
+        }
+
+        .camera-viewport-card {
+            background: #000;
+            border: 2px solid var(--border-color);
+            border-radius: 22px;
+            height: 310px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.8), 0 10px 30px rgba(0,0,0,0.5);
+            margin-bottom: 14px;
+        }
+
+        #cameraVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .camera-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .scan-reticle {
+            width: 210px;
+            height: 210px;
+            border: 2px solid rgba(56, 189, 248, 0.4);
+            border-radius: 18px;
+            position: relative;
+            box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.45);
+        }
+
+        /* 뷰파인더 4모서리 강조선 */
+        .scan-reticle::before, .scan-reticle::after,
+        .reticle-bottom::before, .reticle-bottom::after {
+            content: '';
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            border-color: #38bdf8;
+            border-style: solid;
+        }
+
+        .scan-reticle::before { top: -2px; left: -2px; border-width: 4px 0 0 4px; border-top-left-radius: 16px; }
+        .scan-reticle::after { top: -2px; right: -2px; border-width: 4px 4px 0 0; border-top-right-radius: 16px; }
+        .reticle-bottom::before { bottom: -2px; left: -2px; border-width: 0 0 4px 4px; border-bottom-left-radius: 16px; }
+        .reticle-bottom::after { bottom: -2px; right: -2px; border-width: 0 4px 4px 0; border-bottom-right-radius: 16px; }
+
+        /* 레이저 스캔 바 애니메이션 */
+        .scan-laser {
+            position: absolute;
+            left: 5%;
+            width: 90%;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #38bdf8, #06b6d4, transparent);
+            box-shadow: 0 0 12px #38bdf8;
+            animation: laserScan 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes laserScan {
+            0% { top: 10px; opacity: 0.8; }
+            50% { opacity: 1; }
+            100% { top: 195px; opacity: 0.8; }
+        }
+
+        .camera-fallback-msg {
+            color: #94a3b8;
+            font-size: 13px;
+            text-align: center;
+            padding: 20px;
+            z-index: 10;
+        }
+
+        .sim-btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .btn-sim-scan {
+            background: var(--bg-card-sub);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #93c5fd;
+            padding: 12px;
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-sim-scan:hover {
+            background: #2563eb;
+            color: #fff;
+            border-color: #38bdf8;
+        }
+
+        /* 잠금 해제 성공 카드 (언락 시 노출) */
+        .unlock-success-modal {
+            display: none;
+            background: linear-gradient(135deg, #064e3b, #0f172a);
+            border: 2px solid #10b981;
+            border-radius: 20px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 0 30px var(--accent-green-glow);
+            animation: bounceIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            margin-bottom: 16px;
+        }
+
+        @keyframes bounceIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .success-icon {
+            font-size: 48px;
+            margin-bottom: 8px;
+            animation: pulseIcon 1.5s infinite;
+        }
+
+        @keyframes pulseIcon {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .success-title {
+            font-size: 20px;
+            font-weight: 900;
+            color: #34d399;
+            margin-bottom: 6px;
+        }
+
+        .success-desc {
+            font-size: 13px;
+            color: #d1fae5;
+            line-height: 1.5;
+            margin-bottom: 14px;
+        }
+
+        .countdown-timer-badge {
+            display: inline-block;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid #10b981;
+            padding: 8px 18px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 800;
+            color: #fef08a;
+            margin-bottom: 14px;
+        }
+
+        /* 공통 CTA 버튼 */
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            border: none;
+            border-radius: var(--radius-md);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 800;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 10px 25px -4px var(--primary-glow);
+            transition: all 0.2s;
+        }
+
+        .btn-primary:active {
+            transform: scale(0.98);
+        }
+
+        .btn-primary:disabled {
+            background: #334155;
+            color: #64748b;
+            box-shadow: none;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-sub);
+            padding: 12px;
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-secondary:hover {
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        /* 하단 푸터 */
+        .app-footer {
+            padding: 12px 18px;
+            background: rgba(10, 15, 28, 0.95);
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* 알림 토스트 */
+        .toast-msg {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(50px);
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid #38bdf8;
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 24px;
+            font-size: 13px;
+            font-weight: 700;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 999;
+            max-width: 90%;
+            text-align: center;
+        }
+
+        .toast-msg.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .toast-msg.error {
+            border-color: #ef4444;
+            color: #fca5a5;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-wrapper">
+        <!-- 상단 헤더 & 상태바 -->
+        <header class="app-header">
+            <div class="header-top">
+                <div class="brand-title">
+                    <span>🚄 SMART_SEAT</span>
+                    <span style="font-size:12px; color:var(--text-sub); font-weight:600;">철도 예매</span>
+                </div>
+                <div id="serverStatus" class="server-status-pill">
+                    <span class="status-dot"></span>
+                    <span id="serverStatusTxt">서버 연동 중</span>
+                </div>
+            </div>
+
+            <!-- 5단계 프로그레스 바 -->
+            <nav class="step-progress-bar">
+                <div class="step-item active" id="stepIndicator1" onclick="goToStep(1)">
+                    <div class="step-circle">1</div>
+                    <span class="step-label">열차선택</span>
+                </div>
+                <div class="step-item" id="stepIndicator2" onclick="goToStep(2)">
+                    <div class="step-circle">2</div>
+                    <span class="step-label">시간설정</span>
+                </div>
+                <div class="step-item" id="stepIndicator3" onclick="goToStep(3)">
+                    <div class="step-circle">3</div>
+                    <span class="step-label">좌석선택</span>
+                </div>
+                <div class="step-item" id="stepIndicator4" onclick="goToStep(4)">
+                    <div class="step-circle">4</div>
+                    <span class="step-label">0원결제</span>
+                </div>
+                <div class="step-item" id="stepIndicator5" onclick="goToStep(5)">
+                    <div class="step-circle">5</div>
+                    <span class="step-label">QR스캐너</span>
+                </div>
+            </nav>
+        </header>
+
+        <!-- 메인 콘텐츠 영역 -->
+        <main class="screen-container">
+            <!-- ==========================================
+                 STEP 1: 열차 선택 화면
+            ========================================== -->
+            <section class="screen active" id="screen1">
+                <div class="route-bar">
+                    <div class="route-stations">
+                        <div class="station-box">
+                            <div class="station-type">출발역</div>
+                            <div class="station-name" id="depStationTxt">서울</div>
+                        </div>
+                        <button class="route-swap-btn" onclick="swapStations()" title="출도착역 변경">⇄</button>
+                        <div class="station-box">
+                            <div class="station-type">도착역</div>
+                            <div class="station-name" id="arrStationTxt">부산</div>
+                        </div>
+                    </div>
+                    <div class="route-date-strip">
+                        <span>📅 2026년 9월 30일 (수) 오늘</span>
+                        <span style="font-weight:700; color:#38bdf8;">스마트 체어 운행구간</span>
+                    </div>
+                </div>
+
+                <div class="section-header">
+                    <div>
+                        <h2 class="section-title">열차 선택</h2>
+                        <p class="section-desc">탑승하실 열차를 선택하시면 시간 설정으로 이동합니다.</p>
+                    </div>
+                </div>
+
+                <div class="train-list" id="trainListContainer">
+                    <!-- 열차 1: KTX-산천 -->
+                    <div class="train-card" onclick="selectTrain('KTX-산천 103', '08:30', '11:15', '2시간 45분', 'KTX-산천')">
+                        <span class="train-badge-smart">⚡ 스마트 체어관</span>
+                        <div class="train-card-header">
+                            <span class="train-name-badge">KTX-산천 103호</span>
+                            <span style="font-size:12px; color:var(--text-sub);">특실/일반실</span>
+                        </div>
+                        <div class="train-time-row">
+                            <div class="time-group">
+                                <div class="time-val">08:30</div>
+                                <div class="station-val">서울 출발</div>
+                            </div>
+                            <div class="duration-arrow">
+                                <span>2시간 45분</span>
+                                <div class="duration-line"></div>
+                                <span style="font-size:10px; color:#34d399;">● 정시운행</span>
+                            </div>
+                            <div class="time-group dest">
+                                <div class="time-val">11:15</div>
+                                <div class="station-val">부산 도착</div>
+                            </div>
+                        </div>
+                        <div class="train-card-footer">
+                            <span style="color:var(--text-sub);">잔여좌석: <b style="color:#fff;">14석</b></span>
+                            <div>
+                                <span class="price-strike">59,800원</span>
+                                <span class="price-badge-free">과제 실습 0원</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 열차 2: SRT 305 -->
+                    <div class="train-card" onclick="selectTrain('SRT 305', '09:10', '11:42', '2시간 32분', 'SRT')">
+                        <span class="train-badge-smart">⚡ 전동 걸쇠 연동</span>
+                        <div class="train-card-header">
+                            <span class="train-name-badge" style="background:#581c87; color:#e9d5ff;">SRT 305호</span>
+                            <span style="font-size:12px; color:var(--text-sub);">스마트 전동석</span>
+                        </div>
+                        <div class="train-time-row">
+                            <div class="time-group">
+                                <div class="time-val">09:10</div>
+                                <div class="station-val">수서 출발</div>
+                            </div>
+                            <div class="duration-arrow">
+                                <span>2시간 32분</span>
+                                <div class="duration-line"></div>
+                                <span style="font-size:10px; color:#34d399;">● 정시운행</span>
+                            </div>
+                            <div class="time-group dest">
+                                <div class="time-val">11:42</div>
+                                <div class="station-val">부산 도착</div>
+                            </div>
+                        </div>
+                        <div class="train-card-footer">
+                            <span style="color:var(--text-sub);">잔여좌석: <b style="color:#fff;">8석</b></span>
+                            <div>
+                                <span class="price-strike">52,600원</span>
+                                <span class="price-badge-free">과제 실습 0원</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 열차 3: KTX-이음 201 -->
+                    <div class="train-card" onclick="selectTrain('KTX-이음 201', '10:15', '13:00', '2시간 45분', 'KTX-이음')">
+                        <span class="train-badge-smart">⚡ QR 즉시 탑승</span>
+                        <div class="train-card-header">
+                            <span class="train-name-badge" style="background:#065f46; color:#a7f3d0;">KTX-이음 201호</span>
+                            <span style="font-size:12px; color:var(--text-sub);">우등실</span>
+                        </div>
+                        <div class="train-time-row">
+                            <div class="time-group">
+                                <div class="time-val">10:15</div>
+                                <div class="station-val">서울 출발</div>
+                            </div>
+                            <div class="duration-arrow">
+                                <span>2시간 45분</span>
+                                <div class="duration-line"></div>
+                                <span style="font-size:10px; color:#34d399;">● 정시운행</span>
+                            </div>
+                            <div class="time-group dest">
+                                <div class="time-val">13:00</div>
+                                <div class="station-val">부산 도착</div>
+                            </div>
+                        </div>
+                        <div class="train-card-footer">
+                            <span style="color:var(--text-sub);">잔여좌석: <b style="color:#fff;">20석</b></span>
+                            <div>
+                                <span class="price-strike">59,800원</span>
+                                <span class="price-badge-free">과제 실습 0원</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 열차 4: ITX-마음 1102 -->
+                    <div class="train-card" onclick="selectTrain('ITX-마음 1102', '11:20', '15:10', '3시간 50분', 'ITX-마음')">
+                        <div class="train-card-header">
+                            <span class="train-name-badge" style="background:#831843; color:#fbcfe8;">ITX-마음 1102호</span>
+                            <span style="font-size:12px; color:var(--text-sub);">일반실</span>
+                        </div>
+                        <div class="train-time-row">
+                            <div class="time-group">
+                                <div class="time-val">11:20</div>
+                                <div class="station-val">용산 출발</div>
+                            </div>
+                            <div class="duration-arrow">
+                                <span>3시간 50분</span>
+                                <div class="duration-line"></div>
+                                <span style="font-size:10px; color:#34d399;">● 정시운행</span>
+                            </div>
+                            <div class="time-group dest">
+                                <div class="time-val">15:10</div>
+                                <div class="station-val">부산 도착</div>
+                            </div>
+                        </div>
+                        <div class="train-card-footer">
+                            <span style="color:var(--text-sub);">잔여좌석: <b style="color:#fff;">6석</b></span>
+                            <div>
+                                <span class="price-strike">42,600원</span>
+                                <span class="price-badge-free">과제 실습 0원</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==========================================
+                 STEP 2: 시간 설정 화면
+            ========================================== -->
+            <section class="screen" id="screen2">
+                <div class="train-summary-banner">
+                    <div>
+                        <div style="font-size:12px; color:var(--accent-cyan); font-weight:700;">선택된 열차</div>
+                        <div style="font-size:17px; font-weight:800; color:#fff;" id="selectedTrainBanner">KTX-산천 103호</div>
+                    </div>
+                    <button class="btn-secondary" style="width:auto; margin:0; padding:6px 12px;" onclick="goToStep(1)">열차 변경</button>
+                </div>
+
+                <div class="section-header">
+                    <div>
+                        <h2 class="section-title">⏰ 시간 설정</h2>
+                        <p class="section-desc">출발 희망 시간대를 선택해주세요.</p>
+                    </div>
+                </div>
+
+                <div class="time-filter-pills">
+                    <div class="filter-pill active" onclick="filterTime('all')">전체</div>
+                    <div class="filter-pill" onclick="filterTime('morning')">오전 (06~12시)</div>
+                    <div class="filter-pill" onclick="filterTime('afternoon')">오후 (12~18시)</div>
+                    <div class="filter-pill" onclick="filterTime('night')">저녁 (18~24시)</div>
+                </div>
+
+                <div class="schedule-list" id="scheduleListContainer">
+                    <!-- 시간대 1 -->
+                    <div class="schedule-item selected" onclick="selectSchedule('08:30', '11:15', '2시간 45분', '3번 승강장', this)">
+                        <div style="display:flex; align-items:center;">
+                            <div class="schedule-radio"></div>
+                            <div>
+                                <div class="sched-time-title">08:30 출발 ➔ 11:15 도착</div>
+                                <div class="sched-sub">소요 2시간 45분 | 3번 승강장 | 잔여 14석</div>
+                            </div>
+                        </div>
+                        <span class="price-badge-free">과제 0원</span>
+                    </div>
+
+                    <!-- 시간대 2 -->
+                    <div class="schedule-item" onclick="selectSchedule('09:40', '12:25', '2시간 45분', '4번 승강장', this)">
+                        <div style="display:flex; align-items:center;">
+                            <div class="schedule-radio"></div>
+                            <div>
+                                <div class="sched-time-title">09:40 출발 ➔ 12:25 도착</div>
+                                <div class="sched-sub">소요 2시간 45분 | 4번 승강장 | 잔여 8석</div>
+                            </div>
+                        </div>
+                        <span class="price-badge-free">과제 0원</span>
+                    </div>
+
+                    <!-- 시간대 3 -->
+                    <div class="schedule-item" onclick="selectSchedule('10:50', '13:35', '2시간 45분', '2번 승강장', this)">
+                        <div style="display:flex; align-items:center;">
+                            <div class="schedule-radio"></div>
+                            <div>
+                                <div class="sched-time-title">10:50 출발 ➔ 13:35 도착</div>
+                                <div class="sched-sub">소요 2시간 45분 | 2번 승강장 | 잔여 12석</div>
+                            </div>
+                        </div>
+                        <span class="price-badge-free">과제 0원</span>
+                    </div>
+
+                    <!-- 시간대 4 -->
+                    <div class="schedule-item" onclick="selectSchedule('13:10', '15:55', '2시간 45분', '3번 승강장', this)">
+                        <div style="display:flex; align-items:center;">
+                            <div class="schedule-radio"></div>
+                            <div>
+                                <div class="sched-time-title">13:10 출발 ➔ 15:55 도착</div>
+                                <div class="sched-sub">소요 2시간 45분 | 3번 승강장 | 잔여 19석</div>
+                            </div>
+                        </div>
+                        <span class="price-badge-free">과제 0원</span>
+                    </div>
+
+                    <!-- 시간대 5 -->
+                    <div class="schedule-item" onclick="selectSchedule('15:30', '18:15', '2시간 45분', '5번 승강장', this)">
+                        <div style="display:flex; align-items:center;">
+                            <div class="schedule-radio"></div>
+                            <div>
+                                <div class="sched-time-title">15:30 출발 ➔ 18:15 도착</div>
+                                <div class="sched-sub">소요 2시간 45분 | 5번 승강장 | 잔여 6석</div>
+                            </div>
+                        </div>
+                        <span class="price-badge-free">과제 0원</span>
+                    </div>
+
+                    <!-- 시간대 6 -->
+                    <div class="schedule-item" onclick="selectSchedule('18:00', '20:45', '2시간 45분', '3번 승강장', this)">
+                        <div style="display:flex; align-items:center;">
+                            <div class="schedule-radio"></div>
+                            <div>
+                                <div class="sched-time-title">18:00 출발 ➔ 20:45 도착</div>
+                                <div class="sched-sub">소요 2시간 45분 | 3번 승강장 | 잔여 15석</div>
+                            </div>
+                        </div>
+                        <span class="price-badge-free">과제 0원</span>
+                    </div>
+                </div>
+
+                <button class="btn-primary" onclick="confirmTimeAndGoToSeats()">
+                    <span>좌석 선택창으로 넘어가기 💺</span>
+                </button>
+                <button class="btn-secondary" onclick="goToStep(1)">이전으로 (열차 선택)</button>
+            </section>
+
+            <!-- ==========================================
+                 STEP 3: 좌석 선택 화면
+            ========================================== -->
+            <section class="screen" id="screen3">
+                <div class="section-header">
+                    <div>
+                        <h2 class="section-title">💺 좌석 선택</h2>
+                        <p class="section-desc">희망하는 좌석을 누르면 과제용 0원 구매창으로 넘어갑니다.</p>
+                    </div>
+                </div>
+
+                <div class="coach-selector">
+                    <div class="coach-tab active" onclick="switchCoach(1)">1호차 (스마트 전동체어 특실 ★)</div>
+                    <div class="coach-tab" onclick="switchCoach(2)">2호차 (스마트 일반실)</div>
+                </div>
+
+                <div class="seat-legend">
+                    <div class="legend-item"><span class="legend-box" style="background:#1e293b; border:1px solid #fff;"></span> 빈좌석</div>
+                    <div class="legend-item"><span class="legend-box" style="background:#2563eb;"></span> 내선택</div>
+                    <div class="legend-item"><span class="legend-box" style="background:rgba(245,158,11,0.4); border:1px solid #f59e0b;"></span> 해제대기</div>
+                    <div class="legend-item"><span class="legend-box" style="background:#181c26; border:1px solid #ef4444;"></span> 착석중</div>
+                </div>
+
+                <!-- 열차 객차 1호차 배치도 -->
+                <div class="train-carriage-box">
+                    <div class="train-direction-banner">▲ 열차 진행 방향 (부산행) ▲</div>
+                    
+                    <div class="train-rows-container">
+                        <!-- 1열 (A-01, A-02) -->
+                        <div class="train-row">
+                            <div class="row-num">1</div>
+                            <div class="seat-side-pair">
+                                <!-- A-01 (Seat ID: 1) -->
+                                <div class="seat-btn selected" id="seatBtn_1" onclick="selectSeat(1, 'A-01')">
+                                    <div class="seat-btn-code">A-01</div>
+                                    <div class="seat-btn-state" id="seatStateTxt_1" style="color:#60a5fa;">선택됨</div>
+                                </div>
+                            </div>
+                            <div class="aisle-gap">통로</div>
+                            <div class="seat-side-pair">
+                                <!-- A-02 (Seat ID: 2) -->
+                                <div class="seat-btn" id="seatBtn_2" onclick="selectSeat(2, 'A-02')">
+                                    <div class="seat-btn-code">A-02</div>
+                                    <div class="seat-btn-state" id="seatStateTxt_2" style="color:#94a3b8;">빈 좌석</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2열 (B-01, B-02) -->
+                        <div class="train-row">
+                            <div class="row-num">2</div>
+                            <div class="seat-side-pair">
+                                <div class="seat-btn" id="seatBtn_3" onclick="selectSeat(3, 'B-01')">
+                                    <div class="seat-btn-code">B-01</div>
+                                    <div class="seat-btn-state" id="seatStateTxt_3" style="color:#94a3b8;">빈 좌석</div>
+                                </div>
+                            </div>
+                            <div class="aisle-gap">통로</div>
+                            <div class="seat-side-pair">
+                                <div class="seat-btn" id="seatBtn_4" onclick="selectSeat(4, 'B-02')">
+                                    <div class="seat-btn-code">B-02</div>
+                                    <div class="seat-btn-state" id="seatStateTxt_4" style="color:#94a3b8;">빈 좌석</div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- 선택된 좌석 정보 표시 및 구매 버튼 -->
+                <div class="selected-seat-bar">
+                    <div>
+                        <div style="font-size:11px; color:#93c5fd;">선택된 좌석</div>
+                        <div style="font-size:16px; font-weight:800; color:#fff;" id="selectedSeatBadge">1호차 A-01 (창측)</div>
+                    </div>
+                    <button class="btn-primary" style="width:auto; padding:10px 18px; font-size:14px;" onclick="confirmSeatAndGoToPurchase()">
+                        선택 완료 (구매창) ➔
+                    </button>
+                </div>
+
+                <button class="btn-secondary" onclick="goToStep(2)">이전으로 (시간 설정)</button>
+            </section>
+
+            <!-- ==========================================
+                 STEP 4: 구매창 (과제용 0원 설정)
+            ========================================== -->
+            <section class="screen" id="screen4">
+                <div class="section-header">
+                    <div>
+                        <h2 class="section-title">💳 승차권 구매</h2>
+                        <p class="section-desc">과제용 평가 환경으로 결제 금액이 0원으로 자동 적용됩니다.</p>
+                    </div>
+                </div>
+
+                <div class="ticket-receipt-card">
+                    <div class="receipt-header">
+                        <span style="font-size:12px; color:#60a5fa; font-weight:800;">스마트 승차권 영수증</span>
+                        <span class="assignment-badge">🎓 과제 실습용 (0원)</span>
+                    </div>
+                    
+                    <div class="receipt-train-title" id="receiptTrainTitle">KTX-산천 103호</div>
+
+                    <div class="receipt-grid">
+                        <div class="receipt-field">
+                            <div class="label">출발 / 도착</div>
+                            <div class="val" id="receiptRoute">서울 ➔ 부산</div>
+                        </div>
+                        <div class="receipt-field">
+                            <div class="label">출발 시간</div>
+                            <div class="val" id="receiptTime">08:30 (오늘)</div>
+                        </div>
+                        <div class="receipt-field">
+                            <div class="label">호차 및 좌석</div>
+                            <div class="val" style="color:#38bdf8;" id="receiptSeat">1호차 A-01</div>
+                        </div>
+                        <div class="receipt-field">
+                            <div class="label">승객 유형</div>
+                            <div class="val">일반 성인 1명</div>
+                        </div>
+                    </div>
+
+                    <div class="fare-calculation">
+                        <div class="fare-row">
+                            <span>정상 운임</span>
+                            <span id="receiptOriginalFare">59,800원</span>
+                        </div>
+                        <div class="fare-row">
+                            <span>스마트 전동체어 부가료</span>
+                            <span>3,000원</span>
+                        </div>
+                        <div class="fare-row discount">
+                            <span>과제 실습 전액 면제 쿠폰</span>
+                            <span id="receiptDiscountFare">-62,800원</span>
+                        </div>
+                        <div class="fare-row total">
+                            <span>최종 결제 금액</span>
+                            <span class="fare-total-amount">0원</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="payment-method-box">
+                    <div style="font-size:12px; color:var(--text-sub); margin-bottom:8px; font-weight:700;">결제 수단</div>
+                    <div class="payment-option-item">
+                        <span>🔘 과제 실습용 프리패스 (0원 무료 결제)</span>
+                    </div>
+                </div>
+
+                <div class="assignment-notice">
+                    📌 <b>안내:</b> 과제 제출 및 발표 시뮬레이션을 위해 결제 금액이 <b>0원</b>으로 설정되었습니다.
+                    하단의 <b>[0원 결제하기]</b>를 클릭하면 예매가 완료되며, 좌석의 걸쇠를 풀기 위한 <b>[QR 전용 스캐너]</b> 화면으로 즉시 전환됩니다.
+                </div>
+
+                <button class="btn-primary" id="btnPayZero" onclick="processZeroWonPurchase()">
+                    <span>🎉 0원 결제하기 (QR 전용 스캐너로 이동)</span>
+                </button>
+                <button class="btn-secondary" onclick="goToStep(3)">이전으로 (좌석 재선택)</button>
+            </section>
+
+            <!-- ==========================================
+                 STEP 5: QR 전용 스캐너 화면
+            ========================================== -->
+            <section class="screen" id="screen5">
+                <div class="scanner-header-banner">
+                    <span class="target-ticket-badge" id="scannerTargetBadge">예매 티켓: KTX-산천 103 [1호차 A-01]</span>
+                    <h2 style="font-size:18px; font-weight:900; color:#fff; margin:4px 0;">📷 SMART_SEAT QR 전용 스캐너</h2>
+                    <p style="font-size:12px; color:var(--text-sub);">좌석 팔걸이에 부착된 [고유 QR 코드]를 카메라로 비춰주세요.</p>
+                </div>
+
+                <!-- 잠금 해제 성공 안내 (언락 성공 시 상단 팝업) -->
+                <div class="unlock-success-modal" id="unlockSuccessCard">
+                    <div class="success-icon">🔓</div>
+                    <h3 class="success-title">걸쇠 잠금 해제 성공!</h3>
+                    <p class="success-desc">
+                        <b>[<span id="successSeatCodeTxt">A-01</span>]</b> 좌석의 솔레노이드 걸쇠가 풀렸습니다.<br>
+                        의자를 아래로 당겨 착석하십시오.
+                    </p>
+                    <div class="countdown-timer-badge">
+                        ⏱️ 미착석 시 자동 재잠김: <span id="autoLockTimerTxt">30</span>초
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn-primary" style="flex:1; padding:10px; font-size:13px; background:#10b981;" onclick="simulateSitDown()">💺 의자 펴기 (착석)</button>
+                        <button class="btn-secondary" style="flex:1; margin:0; padding:10px; font-size:13px;" onclick="simulateStandUp()">🚶 일어나기 (접힘)</button>
+                    </div>
+                </div>
+
+                <!-- 실시간 카메라 뷰파인더 -->
+                <div class="camera-viewport-card" id="cameraBox">
+                    <video id="cameraVideo" playsinline autoplay muted></video>
+                    
+                    <div class="camera-overlay">
+                        <div class="scan-reticle">
+                            <div class="scan-laser"></div>
+                            <div class="reticle-bottom"></div>
+                        </div>
+                    </div>
+
+                    <div class="camera-fallback-msg" id="cameraFallbackMsg" style="display:none;">
+                        📷 카메라 초기화 중이거나 권한이 필요합니다.<br>
+                        아래의 <b>[QR 스캔 시뮬레이션]</b> 버튼으로도 100% 테스트 가능합니다.
+                    </div>
+                </div>
+
+                <!-- QR 시뮬레이션 버튼 제거됨 (보드 테스트용) -->
+
+                <button class="btn-secondary" onclick="goToStep(4)">이전으로 (결제 내역 확인)</button>
+                <button class="btn-secondary" style="border-color:#38bdf8; color:#38bdf8; margin-top:8px;" onclick="goToStep(1)">
+                    🔄 처음부터 다시 예매하기
+                </button>
+            </section>
+        </main>
+
+        <!-- 푸터 -->
+        <footer class="app-footer">
+            스마트 좌석(SMART_SEAT) 시스템 | 열차 예매 & QR 잠금해제 전용앱 v2.5
+        </footer>
+    </div>
+
+    <!-- 하단 토스트 알림 메시지 -->
+    <div id="toast" class="toast-msg"></div>
+
+    <script>
+        /* ==============================================================
+           앱 상태 관리 (Global State)
+        ============================================================== */
+        const AppState = {
+            currentStep: 1,
+            selectedTrain: {
+                name: 'KTX-산천 103',
+                depTime: '08:30',
+                arrTime: '11:15',
+                duration: '2시간 45분',
+                type: 'KTX-산천'
+            },
+            depStation: '서울',
+            arrStation: '부산',
+            selectedSchedule: {
+                depTime: '08:30',
+                arrTime: '11:15',
+                duration: '2시간 45분',
+                platform: '3번 승강장'
+            },
+            selectedSeat: {
+                seatId: 1,
+                seatCode: 'A-01',
+                coach: 1
+            },
+            ticketPaid: false,
+            serverUrl: '', // 동일 오리진 자동 감지
+            isServerConnected: false,
+            seatsData: []
+        };
+
+        let currentSelectedSeatId = 1;
+        let currentSelectedSeatCode = 'A-01';
+        let countdownInterval = null;
+        let cameraStream = null;
+        let scanAnimationId = null;
+
+        /* ==============================================================
+           Supabase 클라우드 클라이언트 (Vercel 배포 시 실시간 동기화)
+        ============================================================== */
+        const SUPABASE_URL = 'https://daqmyuwjmqhrjwlomizo.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_Rt5hF5FjGJ9WAhm3rGKmBg_f7_T6yoG';
+        let supabaseClient = null;
+        try {
+            if (typeof supabase !== 'undefined') {
+                supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            }
+        } catch(e) {
+            console.warn('Supabase init failed:', e);
+        }
+
+        /* ==============================================================
+           초기화 & 오디오 합성 엔진 (Web Audio API)
+        ============================================================== */
+        let audioCtx = null;
+        function getAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        function playSound(type) {
+            try {
+                const ctx = getAudioContext();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                if (type === 'beep') {
+                    // QR 스캔 감지 단음
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(1200, ctx.currentTime);
+                    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.12);
+                } else if (type === 'success') {
+                    // 잠금 해제 승인 멜로디 (도-미-솔-도)
+                    const notes = [523.25, 659.25, 783.99, 1046.50];
+                    notes.forEach((freq, idx) => {
+                        const noteOsc = ctx.createOscillator();
+                        const noteGain = ctx.createGain();
+                        noteOsc.connect(noteGain);
+                        noteGain.connect(ctx.destination);
+                        noteOsc.type = 'triangle';
+                        noteOsc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.08);
+                        noteGain.gain.setValueAtTime(0.25, ctx.currentTime + idx * 0.08);
+                        noteGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + idx * 0.08 + 0.2);
+                        noteOsc.start(ctx.currentTime + idx * 0.08);
+                        noteOsc.stop(ctx.currentTime + idx * 0.08 + 0.2);
+                    });
+                } else if (type === 'error') {
+                    // 좌석 불일치 경고음
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(220, ctx.currentTime);
+                    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.35);
+                }
+            } catch (e) {
+                console.warn('Audio not available:', e);
+            }
+        }
+
+        /* ==============================================================
+           단계(Step) 전환 내비게이션
+        ============================================================== */
+        function goToStep(step) {
+            // 결제 전 5단계 직접 진입 방지 (과제 결제 완료 필수)
+            if (step === 5 && !AppState.ticketPaid) {
+                showToast('승차권 0원 결제를 먼저 완료해주세요!', true);
+                step = 4;
+            }
+
+            AppState.currentStep = step;
+
+            // 스크린 탭 전환
+            for (let i = 1; i <= 5; i++) {
+                const screenEl = document.getElementById('screen' + i);
+                const indicatorEl = document.getElementById('stepIndicator' + i);
+                if (screenEl) {
+                    if (i === step) {
+                        screenEl.classList.add('active');
+                    } else {
+                        screenEl.classList.remove('active');
+                    }
+                }
+                if (indicatorEl) {
+                    indicatorEl.classList.remove('active', 'completed');
+                    if (i < step) {
+                        indicatorEl.classList.add('completed');
+                    } else if (i === step) {
+                        indicatorEl.classList.add('active');
+                    }
+                }
+            }
+
+            // 스텝별 진입 작업
+            if (step === 2) {
+                document.getElementById('selectedTrainBanner').innerText = AppState.selectedTrain.name + ` (${AppState.depStation} ➔ ${AppState.arrStation})`;
+            } else if (step === 3) {
+                fetchSeats();
+            } else if (step === 4) {
+                updateReceiptDetails();
+            } else if (step === 5) {
+                initScannerScreen();
+            } else {
+                stopCamera();
+            }
+        }
+
+        /* ==============================================================
+           STEP 1: 열차 선택 함수
+        ============================================================== */
+        function selectTrain(trainName, depTime, arrTime, duration, type) {
+            AppState.selectedTrain = { name: trainName, depTime, arrTime, duration, type };
+            AppState.selectedSchedule.depTime = depTime;
+            AppState.selectedSchedule.arrTime = arrTime;
+            AppState.selectedSchedule.duration = duration;
+
+            showToast(`🚄 [${trainName}] 열차가 선택되었습니다.`);
+            goToStep(2); // 시간 설정창으로 이동
+        }
+
+        function swapStations() {
+            const temp = AppState.depStation;
+            AppState.depStation = AppState.arrStation;
+            AppState.arrStation = temp;
+            document.getElementById('depStationTxt').innerText = AppState.depStation;
+            document.getElementById('arrStationTxt').innerText = AppState.arrStation;
+            showToast(`구간이 [${AppState.depStation} ➔ ${AppState.arrStation}]으로 변경되었습니다.`);
+        }
+
+        /* ==============================================================
+           STEP 2: 시간 설정 함수
+        ============================================================== */
+        function selectSchedule(depTime, arrTime, duration, platform, el) {
+            document.querySelectorAll('.schedule-item').forEach(item => item.classList.remove('selected'));
+            if (el) el.classList.add('selected');
+
+            AppState.selectedSchedule = { depTime, arrTime, duration, platform };
+            showToast(`⏰ 출발 시간이 [${depTime}]으로 설정되었습니다.`);
+        }
+
+        function confirmTimeAndGoToSeats() {
+            goToStep(3); // 좌석 선택창으로 이동
+        }
+
+        function filterTime(filter) {
+            document.querySelectorAll('.filter-pill').forEach(pill => pill.classList.remove('active'));
+            event.target.classList.add('active');
+            showToast(`시간대 필터: ${event.target.innerText}`);
+        }
+
+        /* ==============================================================
+           STEP 3: 좌석 선택 함수 (실시간 Unity 연동)
+        ============================================================== */
+        function selectSeat(seatId, seatCode) {
+            // 이미 다른 사람이 착석/예약/해제대기/점검 중인지 확인
+            const seatInfo = AppState.seatsData.find(s => s.seatId === seatId);
+            if (seatInfo) {
+                if (seatInfo.state === 'Maintenance') {
+                    showToast(`⚠️ [${seatCode}] 좌석은 현재 점검 중으로 예매할 수 없습니다.`, true);
+                    return;
+                }
+                if (seatInfo.state === 'Occupied') {
+                    showToast(`⚠️ [${seatCode}] 좌석은 현재 다른 승객이 착석 중입니다.`, true);
+                    return;
+                }
+                if (seatInfo.state === 'Reserved') {
+                    showToast(`⚠️ [${seatCode}] 좌석은 이미 예약된 좌석입니다.`, true);
+                    return;
+                }
+                if (seatInfo.state === 'Unlocked') {
+                    showToast(`⚠️ [${seatCode}] 좌석은 현재 사용 중(잠금 해제)입니다.`, true);
+                    return;
+                }
+            }
+            // 서버 데이터 없을 때 UI 클래스로 2차 확인
+            const btnEl = document.getElementById('seatBtn_' + seatId);
+            if (btnEl && (btnEl.classList.contains('occupied') || btnEl.classList.contains('maintenance-block'))) {
+                showToast(`⚠️ [${seatCode}] 좌석은 현재 이용할 수 없습니다 (예약/사용/점검 중).`, true);
+                return;
+            }
+
+            currentSelectedSeatId = seatId;
+            currentSelectedSeatCode = seatCode;
+            AppState.selectedSeat = { seatId, seatCode, coach: 1 };
+
+            document.querySelectorAll('.seat-btn').forEach(btn => btn.classList.remove('selected'));
+            const targetBtn = document.getElementById('seatBtn_' + seatId);
+            if (targetBtn) targetBtn.classList.add('selected');
+
+            document.getElementById('selectedSeatBadge').innerText = `1호차 ${seatCode} (스마트 체어)`;
+            showToast(`💺 [1호차 ${seatCode}] 좌석을 선택했습니다.`);
+        }
+
+        function switchCoach(coachNum) {
+            document.querySelectorAll('.coach-tab').forEach((tab, idx) => {
+                tab.classList.toggle('active', idx === (coachNum - 1));
+            });
+            showToast(`${coachNum}호차로 전환되었습니다.`);
+        }
+
+        function confirmSeatAndGoToPurchase() {
+            if (!currentSelectedSeatId) {
+                showToast('⚠️ 탑승하실 좌석을 먼저 선택해주세요!', true);
+                return;
+            }
+
+            // 현재 선택된 좌석의 실시간 상태 최종 검증
+            const seatInfo = AppState.seatsData.find(s => s.seatId === currentSelectedSeatId);
+            if (seatInfo && seatInfo.state !== 'Available') {
+                const stateNames = { 'Maintenance': '점검 중', 'Reserved': '예약됨', 'Occupied': '착석 중', 'Unlocked': '사용 중' };
+                showToast(`⚠️ 선택하신 [${currentSelectedSeatCode}] 좌석이 현재 [${stateNames[seatInfo.state] || seatInfo.state}] 상태로 예매할 수 없습니다!`, true);
+                return;
+            }
+
+            goToStep(4); // 구매창으로 이동
+        }
+
+        /* ==============================================================
+           STEP 4: 구매창 (과제용 0원 설정)
+        ============================================================== */
+        function updateReceiptDetails() {
+            document.getElementById('receiptTrainTitle').innerText = AppState.selectedTrain.name;
+            document.getElementById('receiptRoute').innerText = `${AppState.depStation} ➔ ${AppState.arrStation}`;
+            document.getElementById('receiptTime').innerText = `${AppState.selectedSchedule.depTime} 출발 (도착: ${AppState.selectedSchedule.arrTime})`;
+            document.getElementById('receiptSeat').innerText = `1호차 ${currentSelectedSeatCode} (스마트 체어)`;
+        }
+
+        async function processZeroWonPurchase() {
+            const btn = document.getElementById('btnPayZero');
+            btn.disabled = true;
+            btn.innerText = '0원 결제 및 스마트 티켓 발권 중...';
+
+            try {
+                // Unity 중앙제어 서버로 좌석 예약(RESERVE) 상태 변경 요청 전송
+                const res = await fetch('/api/seat/reserve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        seatId: currentSelectedSeatId,
+                        seatCode: currentSelectedSeatCode,
+                        action: 'RESERVE',
+                        userId: 'KTX_PASSENGER_' + Math.floor(1000 + Math.random() * 9000)
+                    })
+                });
+                const reply = await res.json();
+                console.log('예약 요청 결과:', reply);
+            } catch (err) {
+                console.warn('예약 서버 통신 실패 (오프라인 모드):', err);
+            }
+
+            AppState.ticketPaid = true;
+            btn.disabled = false;
+            btn.innerHTML = '<span>🎉 0원 결제하기 (QR 전용 스캐너로 이동)</span>';
+
+            playSound('success');
+            showToast('🎟️ 0원 결제 승인 완료! 중앙제어에 [예약됨]으로 등록되었습니다.');
+            if (typeof fetchSeats === 'function') fetchSeats();
+            goToStep(5); // QR 전용 스캐너로 이동!
+        }
+
+        /* ==============================================================
+           STEP 5: QR 전용 스캐너 & 카메라 연동
+        ============================================================== */
+        function initScannerScreen() {
+            document.getElementById('scannerTargetBadge').innerText = 
+                `예매 티켓: ${AppState.selectedTrain.name} [ 1호차 ${currentSelectedSeatCode} ]`;
+            document.getElementById('unlockSuccessCard').style.display = 'none';
+
+            startCamera();
+        }
+
+        async function startCamera() {
+            const video = document.getElementById('cameraVideo');
+            const fallbackMsg = document.getElementById('cameraFallbackMsg');
+
+            try {
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+                    });
+                    cameraStream = stream;
+                    video.srcObject = stream;
+                    video.style.display = 'block';
+                    fallbackMsg.style.display = 'none';
+
+                    // 우선: BarcodeDetector API (크롬 최신)
+                    if ('BarcodeDetector' in window) {
+                        const barcodeDetector = new BarcodeDetector({ formats: ['qr_code'] });
+                        startBarcodeDetectorLoop(video, barcodeDetector);
+                    } else if (typeof jsQR !== 'undefined') {
+                        // 폴백: jsQR 라이브러리로 canvas 피크어 스캔
+                        startJsQrLoop(video);
+                    } else {
+                        // jsQR도 없으면 파일백 메시지
+                        fallbackMsg.innerText = '글자 QR 스캔을 지원하려면 Chrome을 사용하세요. 아래 시뮬레이션 버튼을 이용하세요.';
+                        fallbackMsg.style.display = 'block';
+                    }
+                } else {
+                    fallbackMsg.style.display = 'block';
+                }
+            } catch (err) {
+                console.warn('Camera access error:', err);
+                if (err.name === 'NotAllowedError') {
+                    fallbackMsg.innerText = '기기 카메라 권한이 거부되었습니다. 브라우저 설정에서 카메라를 허용해주세요.';
+                } else {
+                    fallbackMsg.innerText = '카메라 연동 실패. 아래 버튼으로 QR 데이터를 직접 입력해주세요.';
+                }
+                fallbackMsg.style.display = 'block';
+            }
+        }
+
+        // jsQR canvas 스캔 루프 (BarcodeDetector 미지원 환경 폴백)
+        function startJsQrLoop(video) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            function scanFrame() {
+                if (!cameraStream) return;
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    canvas.height = video.videoHeight;
+                    canvas.width  = video.videoWidth;
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                        inversionAttempts: 'dontInvert'
+                    });
+                    if (code && code.data) {
+                        console.log('jsQR Detected:', code.data);
+                        scanQrCodeDirectly(code.data);
+                        return; // 감지 후 루프 중단
+                    }
+                }
+                scanAnimationId = requestAnimationFrame(scanFrame);
+            }
+            scanAnimationId = requestAnimationFrame(scanFrame);
+        }
+
+        function stopCamera() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+            if (scanAnimationId) {
+                cancelAnimationFrame(scanAnimationId);
+                scanAnimationId = null;
+            }
+        }
+
+        function startBarcodeDetectorLoop(video, detector) {
+            async function scanFrame() {
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    try {
+                        const barcodes = await detector.detect(video);
+                        if (barcodes.length > 0) {
+                            const rawValue = barcodes[0].rawValue;
+                            console.log('QR Code Detected:', rawValue);
+                            scanQrCodeDirectly(rawValue);
+                            return; // 감지 완료 시 루프 중단
+                        }
+                    } catch (e) { }
+                }
+                scanAnimationId = requestAnimationFrame(scanFrame);
+            }
+            scanAnimationId = requestAnimationFrame(scanFrame);
+        }
+
+        /* ==============================================================
+           QR 검증 & 솔레노이드 걸쇠 잠금 해제 요청
+        ============================================================== */
+        async function scanQrCodeDirectly(qrString) {
+            playSound('beep');
+
+            if (!qrString || typeof qrString !== 'string') return;
+            const q = qrString.trim().toUpperCase();
+
+            // 1. 웹 접속용 URL(ngrok, http 등)을 찍은 경우 즉시 거부 및 안내
+            if (q.startsWith('HTTP://') || q.startsWith('HTTPS://')) {
+                if (!q.includes('SEAT=') && !q.includes('ID=')) {
+                    playSound('error');
+                    showToast('⚠️ 이것은 [웹 접속용 QR]입니다! 의자에 부착된 [좌석 QR 명판]을 스캔해주세요.', true);
+                    return;
+                }
+            }
+
+            // 2. 좌석 고유 식별 코드 파싱 (기본값 없음 - 명시적 매칭만 인정)
+            let scannedSeatId = null;
+            let scannedSeatCode = null;
+
+            if      (q.includes('B-02') || q.includes(':ID4') || q.includes('SEAT=4')) { scannedSeatId = 4; scannedSeatCode = 'B-02'; }
+            else if (q.includes('B-01') || q.includes(':ID3') || q.includes('SEAT=3')) { scannedSeatId = 3; scannedSeatCode = 'B-01'; }
+            else if (q.includes('A-02') || q.includes(':ID2') || q.includes('SEAT=2')) { scannedSeatId = 2; scannedSeatCode = 'A-02'; }
+            else if (q.includes('A-01') || q.includes(':ID1') || q.includes('SEAT=1')) { scannedSeatId = 1; scannedSeatCode = 'A-01'; }
+
+            // 좌석 식별 코드가 없는 잘못된 QR인 경우
+            if (!scannedSeatId) {
+                playSound('error');
+                showToast('⚠️ 좌석 QR 코드가 아닙니다! 의자에 부착된 [좌석 명판 QR]을 비춰주세요.', true);
+                return;
+            }
+
+            // 3. 예매된 좌석과 일치 여부 검증 (내 좌석만 잠금 해제 가능)
+            if (scannedSeatId !== currentSelectedSeatId) {
+                playSound('error');
+                showToast(`⚠️ [좌석 불일치] 고객님의 예매 좌석은 [${currentSelectedSeatCode}]입니다! 스캔된 좌석: [${scannedSeatCode}]`, true);
+                return;
+            }
+
+            // 4. Unity 백엔드 REST API로 걸쇠 해제 요청 전송
+            showToast(`🔓 [${scannedSeatCode}] 좌석 QR 일치! 걸쇠 잠금 해제 요청 중...`);
+
+            try {
+                const res = await fetch('/api/seat/qr-unlock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        seatId: scannedSeatId,
+                        userId: 'KTX_APP_PASSENGER_' + Math.floor(1000 + Math.random() * 9000),
+                        qrCode: qrString
+                    })
+                });
+
+                const reply = await res.json();
+                handleUnlockResult(scannedSeatCode, reply);
+            } catch (err) {
+                // 오프라인 / 단독 브라우저 실행 시에도 시뮬레이션 성공 보장
+                console.warn('서버 응답 없음 (로컬 시뮬레이션 모드 작동):', err);
+                handleUnlockResult(scannedSeatCode, { status: 'SUCCESS', command: 'UNLOCK' });
+            }
+        }
+
+        function handleUnlockResult(seatCode, reply) {
+            const isSuccess = reply && (reply.status === 'SUCCESS' || reply.status === 'OK' || reply.message === 'OK' || reply.command === 'UNLOCK') && reply.status !== 'REJECT' && reply.status !== 'ERROR';
+            if (isSuccess) {
+                // Supabase 클라우드 실시간 갱신 -> Unity & ESP32로 즉시 ON 전달!
+                if (supabaseClient) {
+                    supabaseClient.from('device_control').update({ status: 'ON' }).eq('id', 1).then();
+                }
+
+                playSound('success');
+                if (navigator.vibrate) navigator.vibrate([100, 50, 150]);
+
+                const successCard = document.getElementById('unlockSuccessCard');
+                if (successCard) {
+                    document.getElementById('successSeatCodeTxt').innerText = seatCode;
+                    successCard.style.display = 'block';
+                }
+
+                showToast(`🎉 [${seatCode}] 인증 성공: ${reply.message || 'OK'}`);
+
+                // 30초 카운트다운 타이머 시작
+                startAutoLockCountdown(30);
+                if (typeof fetchSeats === 'function') fetchSeats();
+            } else {
+                playSound('error');
+                showToast(`⚠️ 인증 실패: ${reply.message || '좌석을 해제할 수 없습니다.'}`, true);
+            }
+        }
+
+        function startAutoLockCountdown(seconds) {
+            if (countdownInterval) clearInterval(countdownInterval);
+            let remain = seconds;
+            const timerEl = document.getElementById('autoLockTimerTxt');
+            if (timerEl) timerEl.innerText = remain;
+
+            countdownInterval = setInterval(() => {
+                remain--;
+                if (timerEl) timerEl.innerText = remain;
+                if (remain <= 0) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                }
+            }, 1000);
+        }
+
+        function simulateSitDown() {
+            fetch('/api/seat/unfold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ seatId: currentSelectedSeatId, action: 'UNFOLD' })
+            }).catch(() => {});
+
+            if (countdownInterval) clearInterval(countdownInterval);
+            showToast(`💺 [${currentSelectedSeatCode}] 좌석에 착석하였습니다. 편안한 여행 되십시오.`);
+            fetchSeats();
+        }
+
+        function simulateStandUp() {
+            fetch('/api/seat/fold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ seatId: currentSelectedSeatId, action: 'FOLD' })
+            }).catch(() => {});
+
+            // Supabase 클라우드 실시간 갱신 -> Unity & ESP32로 즉시 OFF 전달!
+            if (supabaseClient) {
+                supabaseClient.from('device_control').update({ status: 'OFF' }).eq('id', 1).then();
+            }
+
+            showToast(`🚶 [${currentSelectedSeatCode}] 일어남 감지: 의자가 자동으로 접히고 걸쇠가 잠겼습니다.`);
+            document.getElementById('unlockSuccessCard').style.display = 'none';
+            fetchSeats();
+        }
+
+        function promptManualQrInput() {
+            const input = prompt('테스트할 QR 코드 데이터를 입력하세요:', `SMART_SEAT:${currentSelectedSeatCode}:ID${currentSelectedSeatId}`);
+            if (input) {
+                scanQrCodeDirectly(input);
+            }
+        }
+
+        /* ==============================================================
+           서버 좌석 데이터 실시간 동기화 (/api/seat/list 및 Supabase 폴백)
+        ============================================================== */
+        async function fetchSeats() {
+            try {
+                const res = await fetch('/api/seat/list');
+                const data = await res.json();
+                if (data && data.seats) {
+                    AppState.seatsData = data.seats;
+                    updateSeatStatusUI(data.seats);
+                    setServerOnline(true);
+                    return;
+                }
+            } catch (err) {
+                // 로컬 .bat 서버가 없더라도 Vercel 상에서 Supabase 클라우드로 상태 동기화!
+                if (supabaseClient) {
+                    try {
+                        const { data } = await supabaseClient.from('device_control').select('status').eq('id', 1).single();
+                        if (data && data.status) {
+                            const isSeatOn = data.status === 'ON';
+                            const fallbackSeats = [
+                                { seatId: 1, seatCode: 'A-01', state: isSeatOn ? 'Unlocked' : 'Available', solenoid: isSeatOn ? 'Unlocked' : 'Locked' },
+                                { seatId: 2, seatCode: 'A-02', state: 'Available', solenoid: 'Locked' },
+                                { seatId: 3, seatCode: 'B-01', state: 'Available', solenoid: 'Locked' },
+                                { seatId: 4, seatCode: 'B-02', state: 'Available', solenoid: 'Locked' }
+                            ];
+                            AppState.seatsData = fallbackSeats;
+                            updateSeatStatusUI(fallbackSeats);
+                            setServerOnline(true);
+                            return;
+                        }
+                    } catch(e) {}
+                }
+                setServerOnline(false);
+            }
+        }
+
+        function updateSeatStatusUI(seats) {
+            seats.forEach(seat => {
+                const btn = document.getElementById('seatBtn_' + seat.seatId);
+                const txt = document.getElementById('seatStateTxt_' + seat.seatId);
+                if (!btn) return;
+
+                btn.classList.remove('occupied', 'unlocked', 'reserved-block', 'maintenance-block');
+
+                if (seat.state === 'Maintenance') {
+                    // 점검 중 좌석 (ESP32 미연결 또는 고장 점검) — 선택 및 예매 차단
+                    btn.classList.add('occupied', 'maintenance-block');
+                    btn.style.cursor = 'not-allowed';
+                    btn.style.opacity = '0.5';
+                    btn.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+                    btn.style.background = 'rgba(239, 68, 68, 0.08)';
+                    if (txt) { txt.innerText = '점검 중'; txt.style.color = '#ef4444'; }
+                } else if (seat.state === 'Occupied') {
+                    btn.classList.add('occupied');
+                    btn.style.cursor = 'not-allowed';
+                    btn.style.opacity = '0.5';
+                    btn.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                    btn.style.background = '';
+                    if (txt) { txt.innerText = '착석 중'; txt.style.color = '#ef4444'; }
+                } else if (seat.state === 'Reserved') {
+                    btn.classList.add('occupied');
+                    btn.style.cursor = 'not-allowed';
+                    btn.style.opacity = '0.6';
+                    btn.style.borderColor = 'rgba(245, 158, 11, 0.5)';
+                    btn.style.background = 'rgba(245, 158, 11, 0.08)';
+                    if (txt) { txt.innerText = '예약됨'; txt.style.color = '#f59e0b'; }
+                } else if (seat.state === 'Unlocked') {
+                    btn.classList.add('occupied');
+                    btn.style.cursor = 'not-allowed';
+                    btn.style.opacity = '0.6';
+                    btn.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+                    btn.style.background = '';
+                    if (txt) { txt.innerText = '사용 중'; txt.style.color = '#10b981'; }
+                } else {
+                    btn.style.cursor = 'pointer';
+                    btn.style.opacity = '1.0';
+                    btn.style.borderColor = '';
+                    btn.style.background = '';
+                    if (seat.seatId === currentSelectedSeatId) {
+                        if (txt) { txt.innerText = '선택됨'; txt.style.color = '#60a5fa'; }
+                    } else {
+                        if (txt) { txt.innerText = '빈 좌석'; txt.style.color = '#94a3b8'; }
+                    }
+                }
+            });
+        }
+
+        function setServerOnline(online) {
+            const pill = document.getElementById('serverStatus');
+            const txt = document.getElementById('serverStatusTxt');
+            if (online) {
+                pill.classList.remove('offline');
+                txt.innerText = '서버 연결됨';
+            } else {
+                pill.classList.add('offline');
+                txt.innerText = '단독 모드';
+            }
+        }
+
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.className = 'toast-msg show' + (isError ? ' error' : '');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // 초기 시작
+        fetchSeats();
+        setInterval(fetchSeats, 2000);
+
+        // URL 파라미터 지원 (?seat=1 ~ 4)
+        const urlParams = new URLSearchParams(window.location.search);
+        const seatParam = urlParams.get('seat');
+        if (seatParam) {
+            const sId = parseInt(seatParam) || 1;
+            const codeMap = { 1: 'A-01', 2: 'A-02', 3: 'B-01', 4: 'B-02' };
+            const code = codeMap[sId] || 'A-01';
+            selectSeat(sId, code);
+        }
+    </script>
+</body>
+</html>
