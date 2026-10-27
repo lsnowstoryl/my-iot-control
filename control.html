@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>SmartSeat 클라우드 제어판 | Supabase & Vercel</title>
+    <meta name="description" content="Supabase 실시간 클라우드 DB와 Vercel을 연동한 스마트 좌석 및 ESP32/Unity 중앙 원격 제어판">
+    <!-- Google Fonts: Inter & Pretendard -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <!-- Supabase JS v2 CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- QRious QR Code Generator -->
+    <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
+    <style>
+        :root {
+            --bg-base: #070b14;
+            --bg-card: rgba(15, 23, 42, 0.75);
+            --bg-card-hover: rgba(30, 41, 59, 0.85);
+            --border-glow: rgba(59, 130, 246, 0.25);
+            --border-subtle: rgba(255, 255, 255, 0.08);
+            
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.4);
+            --accent-cyan: #06b6d4;
+            --accent-emerald: #10b981;
+            --emerald-glow: rgba(16, 185, 129, 0.4);
+            --accent-rose: #f43f5e;
+            --rose-glow: rgba(244, 63, 94, 0.4);
+            --accent-amber: #f59e0b;
+
+            --text-title: #f8fafc;
+            --text-body: #cbd5e1;
+            --text-muted: #64748b;
+            
+            --radius-xl: 24px;
+            --radius-lg: 16px;
+            --radius-md: 12px;
+            --radius-sm: 8px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Pretendard', sans-serif;
+            background: radial-gradient(circle at 50% -10%, #1e293b 0%, #070b14 65%);
+            color: var(--text-body);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px 16px 40px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 540px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        /* Glassmorphism Card Base */
+        .glass-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-xl);
+            padding: 22px;
+            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .glass-card:hover {
+            border-color: var(--border-glow);
+        }
+
+        /* Top Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+        }
+
+        .brand-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: var(--radius-md);
+            background: linear-gradient(135deg, #2563eb, #06b6d4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            box-shadow: 0 8px 18px var(--primary-glow);
+        }
+
+        .brand-text h1 {
+            font-size: 19px;
+            font-weight: 800;
+            letter-spacing: -0.4px;
+            color: var(--text-title);
+            background: linear-gradient(135deg, #ffffff 40%, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-text p {
+            font-size: 12px;
+            color: var(--accent-cyan);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .cloud-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent-emerald);
+        }
+
+        .cloud-badge.offline {
+            background: rgba(244, 63, 94, 0.12);
+            border-color: rgba(244, 63, 94, 0.3);
+            color: var(--accent-rose);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-emerald);
+            box-shadow: 0 0 10px var(--accent-emerald);
+            animation: pulse-ring 1.8s infinite;
+        }
+
+        .cloud-badge.offline .pulse-dot {
+            background: var(--accent-rose);
+            box-shadow: 0 0 10px var(--accent-rose);
+            animation: none;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 1; }
+            50% { transform: scale(1.35); opacity: 0.6; }
+            100% { transform: scale(0.95); opacity: 1; }
+        }
+
+        /* Main Power Hero Card */
+        .hero-card {
+            text-align: center;
+            padding: 36px 24px 30px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
+            z-index: 0;
+            pointer-events: none;
+            transition: background 0.5s ease;
+        }
+
+        .hero-card.state-on::before {
+            background: radial-gradient(circle, var(--emerald-glow) 0%, transparent 70%);
+        }
+
+        .hero-card.state-off::before {
+            background: radial-gradient(circle, var(--rose-glow) 0%, transparent 70%);
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .status-badge-title {
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        /* Large Animated Status Ring */
+        .status-orb-container {
+            margin: 0 auto 20px;
+            width: 140px;
+            height: 140px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .status-ring {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.5s ease;
+        }
+
+        .state-on .status-ring {
+            border-color: var(--accent-emerald);
+            box-shadow: 0 0 35px var(--emerald-glow), inset 0 0 20px var(--emerald-glow);
+            animation: spin-glow 10s linear infinite;
+        }
+
+        .state-off .status-ring {
+            border-color: var(--accent-rose);
+            box-shadow: 0 0 25px var(--rose-glow);
+        }
+
+        @keyframes spin-glow {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .status-orb {
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #0f172a;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: inset 0 5px 15px rgba(0, 0, 0, 0.7);
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            user-select: none;
+        }
+
+        .status-orb:hover {
+            transform: scale(1.05);
+        }
+
+        .status-orb:active {
+            transform: scale(0.95);
+        }
+
+        .status-orb-icon {
+            font-size: 32px;
+            margin-bottom: 2px;
+            transition: transform 0.3s ease;
+        }
+
+        .status-orb-text {
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+
+        .state-on .status-orb-text {
+            color: var(--accent-emerald);
+            text-shadow: 0 0 12px var(--accent-emerald);
+        }
+
+        .state-off .status-orb-text {
+            color: var(--accent-rose);
+            text-shadow: 0 0 12px var(--accent-rose);
+        }
+
+        .state-loading .status-orb-text {
+            color: var(--accent-amber);
+        }
+
+        .status-meta-info {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+        }
+
+        .status-meta-info span {
+            color: var(--text-title);
+            font-weight: 600;
+        }
+
+        /* Dual Action Buttons */
+        .action-button-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .btn-ctrl {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 16px 18px;
+            border-radius: var(--radius-lg);
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            outline: none;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-ctrl:active {
+            transform: translateY(2px);
+        }
+
+        .btn-on {
+            background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+            color: #ffffff;
+            box-shadow: 0 8px 24px var(--emerald-glow);
+        }
+
+        .btn-on:hover {
+            filter: brightness(1.1);
+            box-shadow: 0 10px 28px rgba(16, 185, 129, 0.6);
+        }
+
+        .btn-off {
+            background: linear-gradient(135deg, #e11d48 0%, #f43f5e 100%);
+            color: #ffffff;
+            box-shadow: 0 8px 24px var(--rose-glow);
+        }
+
+        .btn-off:hover {
+            filter: brightness(1.1);
+            box-shadow: 0 10px 28px rgba(244, 63, 94, 0.6);
+        }
+
+        /* SmartSeat 4 Seats Quick Deck */
+        .section-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-title);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .seats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        .seat-tile {
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 14px 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .seat-tile:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-glow);
+            transform: translateY(-2px);
+        }
+
+        .seat-tile.active-seat {
+            border-color: var(--accent-emerald);
+            background: rgba(16, 185, 129, 0.15);
+            box-shadow: 0 0 16px rgba(16, 185, 129, 0.25);
+        }
+
+        .seat-tile-code {
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--text-title);
+            margin-bottom: 4px;
+        }
+
+        .seat-tile-state {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent-emerald);
+        }
+
+        /* QR Code & Share Card */
+        .qr-card {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            padding: 18px;
+        }
+
+        .qr-canvas-box {
+            background: #ffffff;
+            padding: 8px;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+        }
+
+        .qr-canvas-box canvas {
+            display: block;
+        }
+
+        .qr-info h4 {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-title);
+            margin-bottom: 4px;
+        }
+
+        .qr-info p {
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }
+
+        .btn-copy-url {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            border-radius: var(--radius-sm);
+            color: #60a5fa;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-copy-url:hover {
+            background: rgba(59, 130, 246, 0.3);
+            color: #ffffff;
+        }
+
+        /* Realtime Log Console */
+        .log-console {
+            background: rgba(2, 6, 23, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: var(--radius-lg);
+            padding: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            max-height: 140px;
+            overflow-y: auto;
+        }
+
+        .log-line {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 6px;
+            line-height: 1.4;
+            color: #94a3b8;
+        }
+
+        .log-line:last-child {
+            margin-bottom: 0;
+        }
+
+        .log-time {
+            color: #475569;
+            flex-shrink: 0;
+        }
+
+        .log-tag {
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .log-tag.info { color: #38bdf8; }
+        .log-tag.success { color: #34d399; }
+        .log-tag.error { color: #f87171; }
+        .log-msg { color: #cbd5e1; word-break: break-all; }
+
+        /* Toast Popup */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(40px);
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-glow);
+            color: var(--text-title);
+            padding: 12px 20px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 600;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.7);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /* Footer */
+        .footer-info {
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        .footer-info a {
+            color: #60a5fa;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 상단 헤더 -->
+        <header class="glass-card header">
+            <div class="brand-area">
+                <div class="brand-icon">⚡</div>
+                <div class="brand-text">
+                    <h1>SmartSeat Cloud Hub</h1>
+                    <p><span>🌐</span> Vercel & Supabase Realtime</p>
+                </div>
+            </div>
+            <div id="cloudBadge" class="cloud-badge">
+                <span class="pulse-dot"></span>
+                <span id="cloudStatusTxt">연결 중...</span>
+            </div>
+        </header>
+
+        <!-- 메인 전원 & 상태 컨트롤 히어로 카드 -->
+        <main id="heroCard" class="glass-card hero-card state-loading">
+            <div class="hero-content">
+                <div class="status-badge-title">ESP32 & Unity 하드웨어 장치 상태</div>
+                
+                <div class="status-orb-container">
+                    <div class="status-ring"></div>
+                    <div class="status-orb" id="statusOrb" onclick="toggleStatus()" title="클릭하여 ON/OFF 전환">
+                        <div class="status-orb-icon" id="orbIcon">⏳</div>
+                        <div class="status-orb-text" id="current-status">CONNECTING</div>
+                    </div>
+                </div>
+
+                <div class="status-meta-info">
+                    테이블: <span>device_control (ID: 1)</span> &bull; 
+                    지연시간: <span id="pingMs">--</span>ms
+                </div>
+
+                <!-- 듀얼 액션 버튼 -->
+                <div class="action-button-grid">
+                    <button class="btn-ctrl btn-on" id="btnOn" onclick="changeStatus('ON')">
+                        <span>🟢</span>
+                        <span>전원 켜기 (ON)</span>
+                    </button>
+                    <button class="btn-ctrl btn-off" id="btnOff" onclick="changeStatus('OFF')">
+                        <span>🔴</span>
+                        <span>전원 끄기 (OFF)</span>
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- 4개 좌석 바로가기 프리셋 카드 -->
+        <section class="glass-card">
+            <div class="section-title">
+                <span>💺 스마트 좌석 바로가기</span>
+                <span style="font-size: 11px; color: var(--accent-cyan); font-weight: 500;">클릭 시 해당 좌석 잠금 해제</span>
+            </div>
+            <div class="seats-grid">
+                <div class="seat-tile" onclick="sendSeatAction('A-01', 1)">
+                    <div class="seat-tile-code">A-01</div>
+                    <div class="seat-tile-state">1번 좌석</div>
+                </div>
+                <div class="seat-tile" onclick="sendSeatAction('A-02', 2)">
+                    <div class="seat-tile-code">A-02</div>
+                    <div class="seat-tile-state">2번 좌석</div>
+                </div>
+                <div class="seat-tile" onclick="sendSeatAction('B-01', 3)">
+                    <div class="seat-tile-code">B-01</div>
+                    <div class="seat-tile-state">3번 좌석</div>
+                </div>
+                <div class="seat-tile" onclick="sendSeatAction('B-02', 4)">
+                    <div class="seat-tile-code">B-02</div>
+                    <div class="seat-tile-state">4번 좌석</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 승객용 모바일 웹앱 바로가기 카드 -->
+        <section class="glass-card" style="display: flex; align-items: center; justify-content: space-between; padding: 18px 20px;">
+            <div>
+                <div style="font-size: 15px; font-weight: 700; color: var(--text-title); margin-bottom: 3px;">🚄 KTX/SRT 승객용 예매 앱</div>
+                <div style="font-size: 12px; color: var(--text-muted);">5단계 예매 & 카메라 QR 스캐너 웹앱</div>
+            </div>
+            <a href="app.html" style="display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px; background: linear-gradient(135deg, #2563eb, #06b6d4); color: white; text-decoration: none; border-radius: var(--radius-md); font-size: 13px; font-weight: 700; box-shadow: 0 4px 15px var(--primary-glow); transition: all 0.2s;">
+                <span>앱 열기</span> <span>➔</span>
+            </a>
+        </section>
+
+        <!-- 스마트폰 연동 QR 코드 카드 -->
+        <section class="glass-card qr-card">
+            <div class="qr-canvas-box">
+                <canvas id="qrCanvas" width="90" height="90"></canvas>
+            </div>
+            <div class="qr-info">
+                <h4>스마트폰 카메라로 스캔</h4>
+                <p>스마트폰으로 비추면 어디서든(LTE/5G) 이 제어판에 접속하여 장치를 제어할 수 있습니다.</p>
+                <button class="btn-copy-url" onclick="copyCurrentUrl()">
+                    <span>📋</span> <span id="copyBtnTxt">주소 복사</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- 실시간 Supabase 이벤트 로그 콘솔 -->
+        <section class="glass-card" style="padding: 16px 20px;">
+            <div class="section-title" style="margin-bottom: 10px;">
+                <span>📡 실시간 통신 로그</span>
+                <button onclick="clearLogs()" style="background:none; border:none; color:var(--text-muted); font-size:11px; cursor:pointer;">지우기</button>
+            </div>
+            <div class="log-console" id="logConsole">
+                <div class="log-line">
+                    <span class="log-time">00:00:00</span>
+                    <span class="log-tag info">[SYSTEM]</span>
+                    <span class="log-msg">Supabase 클라우드 클라이언트 초기화 중...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 푸터 안내 -->
+        <footer class="footer-info">
+            <p>SmartSeat Cloud Controller &bull; Powered by Supabase & Vercel</p>
+            <p>로컬 .bat 서버 없이 24시간 언제 어디서나 전세계 어디서든 동작합니다.</p>
+        </footer>
+    </div>
+
+    <!-- 토스트 알림 메시지 -->
+    <div id="toast" class="toast">
+        <span id="toastIcon">✨</span>
+        <span id="toastMsg">알림 메시지</span>
+    </div>
+
+    <script>
+        /* ==============================================================
+           1. Supabase 클라우드 설정 & 클라이언트 생성
+        ============================================================== */
+        const SUPABASE_URL = 'https://daqmyuwjmqhrjwlomizo.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_Rt5hF5FjGJ9WAhm3rGKmBg_f7_T6yoG';
+
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let currentStatusValue = 'OFF';
+        let isUpdating = false;
+
+        /* ==============================================================
+           2. Web Audio API 사운드 피드백
+        ============================================================== */
+        let audioCtx = null;
+        function playBeep(isSuccess = true) {
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                if (isSuccess) {
+                    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(1320, audioCtx.currentTime + 0.1);
+                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.15);
+                } else {
+                    osc.frequency.setValueAtTime(320, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.2);
+                }
+            } catch (e) {}
+        }
+
+        /* ==============================================================
+           3. UI 상태 갱신 함수
+        ============================================================== */
+        function updateUI(status) {
+            currentStatusValue = status;
+            const hero = document.getElementById('heroCard');
+            const statusTxt = document.getElementById('current-status');
+            const orbIcon = document.getElementById('orbIcon');
+
+            hero.classList.remove('state-on', 'state-off', 'state-loading');
+
+            if (status === 'ON') {
+                hero.classList.add('state-on');
+                statusTxt.innerText = 'ON (켜짐)';
+                orbIcon.innerText = '🟢';
+            } else if (status === 'OFF') {
+                hero.classList.add('state-off');
+                statusTxt.innerText = 'OFF (꺼짐)';
+                orbIcon.innerText = '🔴';
+            } else {
+                hero.classList.add('state-loading');
+                statusTxt.innerText = status;
+                orbIcon.innerText = '⚡';
+            }
+        }
+
+        /* ==============================================================
+           4. Supabase DB 상태 변경 (ON / OFF)
+        ============================================================== */
+        async function changeStatus(newStatus) {
+            if (isUpdating) return;
+            isUpdating = true;
+
+            const startTime = performance.now();
+            addLog('info', `[전송] 상태 변경 요청: ${newStatus}...`);
+            showToast(`장치 상태를 [${newStatus}] 로 변경 중...`, '⚡');
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('device_control')
+                    .update({ status: newStatus })
+                    .eq('id', 1)
+                    .select();
+
+                const latency = Math.round(performance.now() - startTime);
+                document.getElementById('pingMs').innerText = latency;
+
+                if (error) {
+                    throw error;
+                }
+
+                updateUI(newStatus);
+                playBeep(true);
+                addLog('success', `[성공] DB 갱신 완료: ${newStatus} (${latency}ms)`);
+                showToast(`장치 상태가 [${newStatus}] 로 변경되었습니다!`, newStatus === 'ON' ? '🟢' : '🔴');
+            } catch (err) {
+                playBeep(false);
+                addLog('error', `[오류] 갱신 실패: ${err.message}`);
+                showToast(`오류 발생: ${err.message}`, '⚠️');
+            } finally {
+                isUpdating = false;
+            }
+        }
+
+        function toggleStatus() {
+            const next = currentStatusValue === 'ON' ? 'OFF' : 'ON';
+            changeStatus(next);
+        }
+
+        function sendSeatAction(seatCode, seatId) {
+            // 좌석 잠금 해제 명령을 ON으로 설정하고 로그 기록
+            changeStatus('ON');
+            showToast(`💺 [${seatCode}] 좌석 잠금 해제 (ON) 명령 전송 완료!`, '🔓');
+            addLog('info', `[좌석제어] ${seatCode} (ID:${seatId}) 잠금 해제 요청 -> status: ON`);
+        }
+
+        /* ==============================================================
+           5. Supabase 실시간 동기화 (Realtime Subscription + Polling)
+        ============================================================== */
+        async function fetchInitialStatus() {
+            const startTime = performance.now();
+            try {
+                const { data, error } = await supabaseClient
+                    .from('device_control')
+                    .select('status')
+                    .eq('id', 1)
+                    .single();
+
+                const latency = Math.round(performance.now() - startTime);
+                document.getElementById('pingMs').innerText = latency;
+
+                if (error) throw error;
+
+                if (data && data.status) {
+                    updateUI(data.status);
+                    setCloudOnline(true);
+                    addLog('success', `[연결] 현재 DB 상태 수신: ${data.status} (${latency}ms)`);
+                }
+            } catch (err) {
+                setCloudOnline(false);
+                addLog('error', `[조회실패] ${err.message}`);
+            }
+        }
+
+        function setupRealtime() {
+            supabaseClient
+                .channel('device_control_realtime')
+                .on(
+                    'postgres_changes',
+                    { event: '*', schema: 'public', table: 'device_control' },
+                    (payload) => {
+                        console.log('Realtime change detected:', payload);
+                        if (payload.new && payload.new.status) {
+                            const newStatus = payload.new.status;
+                            updateUI(newStatus);
+                            playBeep(true);
+                            addLog('info', `[실시간수신] 다른 기기에서 변경됨: ${newStatus}`);
+                            showToast(`실시간 동기화: 상태가 [${newStatus}] 로 변경되었습니다.`, '🔔');
+                        }
+                    }
+                )
+                .subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        setCloudOnline(true);
+                        addLog('success', '[실시간] Supabase WebSocket 채널 구독 성공!');
+                    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                        setCloudOnline(false);
+                        addLog('error', `[실시간] 웹소켓 채널 상태: ${status}`);
+                    }
+                });
+        }
+
+        function setCloudOnline(online) {
+            const badge = document.getElementById('cloudBadge');
+            const txt = document.getElementById('cloudStatusTxt');
+            if (online) {
+                badge.classList.remove('offline');
+                txt.innerText = '클라우드 실시간 연결됨';
+            } else {
+                badge.classList.add('offline');
+                txt.innerText = '재연결 시도 중...';
+            }
+        }
+
+        /* ==============================================================
+           6. 유틸리티 (로그, 토스트, QR, URL 복사)
+        ============================================================== */
+        function addLog(type, msg) {
+            const consoleEl = document.getElementById('logConsole');
+            const now = new Date();
+            const timeStr = now.toTimeString().split(' ')[0];
+
+            const line = document.createElement('div');
+            line.className = 'log-line';
+            line.innerHTML = `
+                <span class="log-time">${timeStr}</span>
+                <span class="log-tag ${type}">[${type.toUpperCase()}]</span>
+                <span class="log-msg">${msg}</span>
+            `;
+
+            consoleEl.appendChild(line);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logConsole').innerHTML = '';
+        }
+
+        function showToast(msg, icon = '✨') {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMsg').innerText = msg;
+            document.getElementById('toastIcon').innerText = icon;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        function copyCurrentUrl() {
+            navigator.clipboard.writeText(window.location.href).then(() => {
+                document.getElementById('copyBtnTxt').innerText = '복사 완료!';
+                showToast('현재 페이지 URL이 복사되었습니다!', '📋');
+                setTimeout(() => {
+                    document.getElementById('copyBtnTxt').innerText = '주소 복사';
+                }, 2000);
+            }).catch(() => {
+                prompt('이 주소를 복사하세요:', window.location.href);
+            });
+        }
+
+        function generateQrCode() {
+            try {
+                new QRious({
+                    element: document.getElementById('qrCanvas'),
+                    value: window.location.href,
+                    size: 90,
+                    level: 'M'
+                });
+            } catch (e) {}
+        }
+
+        // 초기 시작
+        fetchInitialStatus();
+        setupRealtime();
+        generateQrCode();
+
+        // 3초 주기 폴링으로 확실한 정합성 보장
+        setInterval(fetchInitialStatus, 3000);
+    </script>
+</body>
+</html>

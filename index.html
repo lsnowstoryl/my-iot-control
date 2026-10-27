@@ -1131,6 +1131,114 @@
             border-color: #ef4444;
             color: #fca5a5;
         }
+
+        /* ── ★ 3분 하차 알림 풀스크린 오버레이 ── */
+        .alight-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(0, 0, 0, 0.94);
+            backdrop-filter: blur(8px);
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 32px 24px;
+            animation: alightFadeIn 0.5s ease;
+        }
+        .alight-overlay.active {
+            display: flex;
+        }
+        @keyframes alightFadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+        .alight-pulse-ring {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: rgba(239, 68, 68, 0.15);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 52px;
+            margin-bottom: 20px;
+            animation: alightPulse 1s ease-in-out infinite;
+            border: 3px solid rgba(239, 68, 68, 0.6);
+        }
+        @keyframes alightPulse {
+            0%, 100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+            50%       { transform: scale(1.08); box-shadow: 0 0 0 16px rgba(239,68,68,0); }
+        }
+        .alight-title {
+            font-size: 36px;
+            font-weight: 900;
+            color: #ef4444;
+            letter-spacing: -1px;
+            line-height: 1.1;
+            margin-bottom: 6px;
+            text-shadow: 0 0 30px rgba(239,68,68,0.6);
+        }
+        .alight-subtitle {
+            font-size: 16px;
+            color: #fca5a5;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .alight-seat-badge {
+            display: inline-block;
+            background: rgba(239,68,68,0.2);
+            border: 1px solid rgba(239,68,68,0.5);
+            color: #fca5a5;
+            padding: 4px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 28px;
+        }
+        .alight-divider {
+            width: 60px;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #ef4444, transparent);
+            border-radius: 2px;
+            margin: 0 auto 28px;
+        }
+        .alight-info-box {
+            background: rgba(239,68,68,0.08);
+            border: 1px solid rgba(239,68,68,0.25);
+            border-radius: 14px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            text-align: left;
+            max-width: 340px;
+            width: 100%;
+        }
+        .alight-info-row {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            font-size: 13px;
+            color: #cbd5e1;
+            margin-bottom: 6px;
+        }
+        .alight-info-row:last-child { margin-bottom: 0; }
+        .alight-info-row .icon { font-size: 15px; flex-shrink:0; }
+        .alight-close-btn {
+            width: 100%;
+            max-width: 340px;
+            padding: 16px;
+            background: linear-gradient(135deg, #b91c1c, #ef4444);
+            border: none;
+            border-radius: var(--radius-md);
+            color: #fff;
+            font-size: 15px;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(239,68,68,0.4);
+            transition: transform 0.15s;
+        }
+        .alight-close-btn:active { transform: scale(0.97); }
     </style>
 </head>
 <body>
@@ -1662,6 +1770,23 @@
     <!-- 하단 토스트 알림 메시지 -->
     <div id="toast" class="toast-msg"></div>
 
+    <!-- ★ 3분 하차 알림 풀스크린 오버레이 배너 -->
+    <div class="alight-overlay" id="alightOverlay">
+        <div class="alight-pulse-ring">🚨</div>
+        <div class="alight-title">하차 하세요!</div>
+        <div class="alight-subtitle">Please Alight Now</div>
+        <div class="alight-seat-badge">좌석 <span id="alightSeatCode">A-01</span> · 1호차</div>
+        <div class="alight-divider"></div>
+        <div class="alight-info-box">
+            <div class="alight-info-row"><span class="icon">📍</span><span>열차가 목적지에 도착하였습니다.</span></div>
+            <div class="alight-info-row"><span class="icon">🧳</span><span>소지품을 챙기시고 안전하게 내리십시오.</span></div>
+            <div class="alight-info-row"><span class="icon">💺</span><span>좌석 걸쇠가 자동으로 잠기기 시작합니다.</span></div>
+        </div>
+        <button class="alight-close-btn" onclick="closeAlightOverlay()">
+            ✓ 확인 (하차 완료)
+        </button>
+    </div>
+
     <script>
         /* ==============================================================
            앱 상태 관리 (Global State)
@@ -1699,6 +1824,8 @@
         let countdownInterval = null;
         let cameraStream = null;
         let scanAnimationId = null;
+        let alightTimerInterval = null;  // ★ 3분 하차 알림 타이머
+        let _qrAuthCompleted = false;     // ★ QR 인증 성공 시 재스캔 차단 플래그
 
         /* ==============================================================
            Supabase 클라우드 클라이언트 (Vercel 배포 시 실시간 동기화)
@@ -1996,9 +2123,13 @@
            STEP 5: QR 전용 스캐너 & 카메라 연동
         ============================================================== */
         function initScannerScreen() {
+            _qrAuthCompleted = false; // 새 스캔 시작 시 인증 플래그 초기화
             document.getElementById('scannerTargetBadge').innerText = 
                 `예매 티켓: ${AppState.selectedTrain.name} [ 1호차 ${currentSelectedSeatCode} ]`;
             document.getElementById('unlockSuccessCard').style.display = 'none';
+
+            const video = document.getElementById('cameraVideo');
+            if (video) video.style.display = 'block';
 
             startCamera();
         }
@@ -2070,9 +2201,9 @@
             }
 
             function scanFrame() {
-                if (!cameraStream) return;
+                if (!cameraStream || _qrAuthCompleted) return;
 
-                if (video.readyState === video.HAVE_ENOUGH_DATA && !_isDetecting && !_isHandlingQr) {
+                if (video.readyState === video.HAVE_ENOUGH_DATA && !_isDetecting && !_isHandlingQr && !_qrAuthCompleted) {
                     _isDetecting = true;
                     try {
                         _jsQrCanvas.height = video.videoHeight;
@@ -2083,7 +2214,7 @@
                             inversionAttempts: 'dontInvert'
                         });
 
-                        if (code && code.data) {
+                        if (code && code.data && !_qrAuthCompleted) {
                             const now = Date.now();
                             if (code.data !== _lastScannedData || (now - _lastScannedTime > 2000)) {
                                 _lastScannedData = code.data;
@@ -2091,7 +2222,9 @@
                                 _isHandlingQr = true;
                                 console.log('jsQR 감지됨:', code.data);
                                 scanQrCodeDirectly(code.data).finally(() => {
-                                    setTimeout(() => { _isHandlingQr = false; }, 1500);
+                                    if (!_qrAuthCompleted) {
+                                        setTimeout(() => { _isHandlingQr = false; }, 1500);
+                                    }
                                 });
                             }
                         }
@@ -2102,7 +2235,7 @@
                     }
                 }
 
-                if (cameraStream) {
+                if (cameraStream && !_qrAuthCompleted) {
                     scanAnimationId = requestAnimationFrame(scanFrame);
                 }
             }
@@ -2126,13 +2259,13 @@
 
         function startBarcodeDetectorLoop(video, detector) {
             async function scanFrame() {
-                if (!cameraStream) return;
+                if (!cameraStream || _qrAuthCompleted) return;
 
-                if (video.readyState === video.HAVE_ENOUGH_DATA && !_isDetecting && !_isHandlingQr) {
+                if (video.readyState === video.HAVE_ENOUGH_DATA && !_isDetecting && !_isHandlingQr && !_qrAuthCompleted) {
                     _isDetecting = true;
                     try {
                         const barcodes = await detector.detect(video);
-                        if (barcodes && barcodes.length > 0) {
+                        if (barcodes && barcodes.length > 0 && !_qrAuthCompleted) {
                             const rawValue = barcodes[0].rawValue;
                             const now = Date.now();
                             if (rawValue !== _lastScannedData || (now - _lastScannedTime > 2000)) {
@@ -2141,7 +2274,9 @@
                                 _isHandlingQr = true;
                                 console.log('BarcodeDetector 감지됨:', rawValue);
                                 scanQrCodeDirectly(rawValue).finally(() => {
-                                    setTimeout(() => { _isHandlingQr = false; }, 1500);
+                                    if (!_qrAuthCompleted) {
+                                        setTimeout(() => { _isHandlingQr = false; }, 1500);
+                                    }
                                 });
                             }
                         }
@@ -2155,7 +2290,7 @@
                     }
                 }
 
-                if (cameraStream) {
+                if (cameraStream && !_qrAuthCompleted) {
                     scanAnimationId = requestAnimationFrame(scanFrame);
                 }
             }
@@ -2166,6 +2301,7 @@
            QR 검증 & 솔레노이드 걸쇠 잠금 해제 요청
         ============================================================== */
         async function scanQrCodeDirectly(qrString) {
+            if (_qrAuthCompleted) return; // 이미 인증 완료된 경우 재스캔 차단!
             playSound('beep');
 
             if (!qrString || typeof qrString !== 'string') return;
@@ -2234,6 +2370,12 @@
                     supabaseClient.from('device_control').update({ status: 'UNLOCK' }).eq('id', currentSelectedSeatId).then();
                 }
 
+                // ★ [핵심] 인증 성공 시 즉시 카메라 및 스캔 루프 완전 정지 (반복 인증 성공 토스트 차단!)
+                _qrAuthCompleted = true;
+                stopCamera();
+                const video = document.getElementById('cameraVideo');
+                if (video) video.style.display = 'none';
+
                 playSound('success');
                 if (navigator.vibrate) navigator.vibrate([100, 50, 150]);
 
@@ -2243,14 +2385,77 @@
                     successCard.style.display = 'block';
                 }
 
-                showToast(`🎉 [${seatCode}] 인증 성공: ${reply.message || 'OK'}`);
+                showToast(`🎉 [${seatCode}] 인증 성공! 좌석 걸쇠가 해제되었습니다.`);
+
+                // ★ 3분 뒤 하차 알림 웹 타이머 시작!
+                startAlightWebTimer(seatCode);
 
                 // 30초 카운트다운 타이머 시작
                 startAutoLockCountdown(30);
                 if (typeof fetchSeats === 'function') fetchSeats();
             } else {
+                // ★ 인증 실패 시: 카메라는 켜둔 채로 다시 찍을 수 있게 플래그만 해제
                 playSound('error');
                 showToast(`⚠️ 인증 실패: ${reply.message || '좌석을 해제할 수 없습니다.'}`, true);
+                setTimeout(() => { _isHandlingQr = false; }, 1200);
+            }
+        }
+
+        /* ==============================================================
+           ★ 3분 하차 알림 타이머 (QR 인증 성공 후 시작)
+        ============================================================== */
+        function startAlightWebTimer(seatCode) {
+            if (alightTimerInterval) {
+                clearTimeout(alightTimerInterval);
+                alightTimerInterval = null;
+            }
+
+            console.log(`[하차 타이머] 좌석 [${seatCode}] QR 인증 완료 → 3분(180초) 후 하차 알림 예약`);
+            showToast(`✅ [${seatCode}] 탑승 완료! 3분 후 하차 알림이 화면에 표시됩니다.`);
+
+            alightTimerInterval = setTimeout(() => {
+                showAlightBanner(seatCode);
+            }, 180000); // 3분 = 180,000ms
+        }
+
+        function showAlightBanner(seatCode) {
+            console.log('[하차 알림] !! 3분 경과 → 하차 알림 배너 표시 !!');
+
+            const codeEl = document.getElementById('alightSeatCode');
+            if (codeEl) codeEl.innerText = seatCode || currentSelectedSeatCode;
+
+            const overlay = document.getElementById('alightOverlay');
+            if (overlay) overlay.classList.add('active');
+
+            if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 500]);
+            playAlightSound();
+
+            showToast('🚨 하차 하세요! 목적지에 도착했습니다.');
+        }
+
+        function closeAlightOverlay() {
+            const overlay = document.getElementById('alightOverlay');
+            if (overlay) overlay.classList.remove('active');
+            alightTimerInterval = null;
+        }
+
+        function playAlightSound() {
+            try {
+                const ctx = getAudioContext();
+                [0, 0.4, 0.8].forEach(delay => {
+                    const osc  = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.type = 'square';
+                    osc.frequency.value = 880;
+                    gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.25);
+                    osc.start(ctx.currentTime + delay);
+                    osc.stop(ctx.currentTime + delay + 0.25);
+                });
+            } catch(e) {
+                console.warn('Alight sound play error:', e);
             }
         }
 
